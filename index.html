@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>flood</title>
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js"></script>
+  <script src="gl.js"></script>
+  <script src="https://unpkg.com/leaflet-hash@0.2.1/leaflet-hash.js"></script>
+</head>
+
+<body>
+  <div id="map" style="position:absolute;top:0;left:0;bottom:0;right:0;"></div>
+  <script>
+    var fragmentShader =
+      `
+precision mediump float;
+uniform sampler2D land;
+uniform sampler2D rain;
+uniform mat3 matrix;
+uniform int dx;
+uniform int dy;
+const vec4 rgba2alt = vec4(256.0 * 256.0 * 2.56, 256.0 * 2.56, 2.56, 0.0);
+const float delta = 8.0 / 256.0;
+
+float h(int dx,int dy){
+  vec4 a = texture2D(land, (matrix * (gl_FragCoord.xyw + vec3(dx,dy,0))).xy);
+  return a.r < 0.5 ? dot(a,rgba2alt) : -1.0;
+}
+float r(int dx,int dy){
+  return texture2D(rain, (matrix * (gl_FragCoord.xyw + vec3(dx,dy,0))).xy).a;
+}
+
+vec4 main1(){
+  float h1 = h(-dx,-dy);
+  float h2 = h(0, 0);
+  float h3 = h(dx,dy);
+  float r1 = r(-dx,-dy);
+  float r2 = r(0, 0);
+  float r3 = r(dx,dy);
+
+  return (h2 <= 0.0) ? vec4(0,0,0,0) :
+    (r1>0.0 && h1+r1>h2+r2 && h2+r2<h3+r3) ? vec4(0,0,0.5,r2+delta) :
+    (r2>0.0 && h2+r2>h3+r3 && (r1==0.0||r1+h1<r2+h2)) ? vec4(0,0,0.5,r2-delta) : vec4(0,0,0.5,r2);
+
+}
+
+vec4 main2(){
+  float a = texture2D(rain, (matrix * gl_FragCoord.xyw).xy).a;
+//  return
+//    a < 0.01 ? vec4(0) :
+//    a > 0.75 ? mix(vec4(1,0.6,0,0.75),vec4(1,0,0,0.75),(a-0.75) / 0.25)  :
+//    a > 0.50 ? mix(vec4(0,0,0,0.75),vec4(1,0.6,0,0.75),(a-0.50) / 0.25)  :
+//    a > 0.25 ? mix(vec4(0,0,1,0.75),vec4(0,0,0,0.75),(a-0.25) / 0.25)  :
+//               mix(vec4(1,1,1,0.75),vec4(0,0,1,0.75),(a     ) / 0.25)  ;
+
+  return
+    a < 0.01 ? vec4(0) :
+    a > 0.66 ? mix(vec4(1,0.6,0,0.75),vec4(1,0,0,0.75),(a-0.66) / 0.33)  :
+    a > 0.33 ? mix(vec4(0,0,1,0.75),vec4(1,0.6,0,0.75),(a-0.33) / 0.33)  :
+               mix(vec4(1,1,1,0.75),vec4(0,0,1,0.75),(a     ) / 0.33)  ;
+}
+
+void main(){
+  gl_FragColor = matrix[1][1] < 0.0 ? main2() : main1();
+}
+`;
+    var MyOverlay = L.Layer.extend({
+      initialize: function(src) {
+        this._src = src;
+        this._frames = [];
+      },
+      getEvents: function() {
+        return {
+          "move": this.paint,
+          "resize": this.onResize
+        };
+      },
+      onAdd: function(map) {
+        this._canvas = document.createElement("canvas");
+        this._shadow = document.createElement("canvas");
+
+        this._gl = $gl(this._canvas.getContext("webgl", {
+            premultipliedAlpha: false
+          }))
+          .shader("attribute vec2 xy;void main(){gl_Position = vec4(xy,0,1);}")
+          .shader(fragmentShader)
+          .bind("xy", [-1, -1, 1, -1, -1, 1, 1, 1]);
+
+        this.getPane().appendChild(this._canvas);
+        this.onResize();
+      },
+      onResize: function() {
+        if (!this._map || !this._canvas) return;
+        var size = this._map.getSize();
+        this._canvas.width = this._shadow.width = size.x;
+        this._canvas.height = this._shadow.height = size.y;
+        this._canvas.style.width = size.x + "px";
+        this._canvas.style.height = size.y + "px";
+        this._gl.viewport(0, 0, size.x, size.y);
+        this.paint();
+      },
+      onRemove: function(map) {
+        L.DomUtil.remove(this._canvas);
+      },
+      paint: function() {
+        if (!this._map || !this._canvas) return;
+
+        var canvas = this._canvas;
+        L.DomUtil.setPosition(canvas, this._map.containerPointToLayerPoint([0, 0]));
+
+        var context = this._shadow.getContext("2d");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        for (var key in this._src._tiles) {
+          var tile = this._src._tiles[key];
+          if (tile.current) {
+            var p1 = this._src._tileCoordsToNwSe(tile.coords)[0];
+            var p2 = this._map.latLngToContainerPoint(p1);
+            try {
+              context.drawImage(tile.el, p2.x, p2.y);
+            } catch (ex) {}
+          }
+        }
+
+        var rain = document.createElement("canvas");
+        rain.width = canvas.width;
+        rain.height = canvas.height;
+        var c = rain.getContext("2d");
+        c.fillStyle = "rgba(0,0,0,1)";
+        c.fillRect(1, 1, rain.width - 2, rain.height - 2);
+
+        var gl = this._gl;
+        gl.texture(0, this._shadow)
+          .texture(1, rain)
+          .texture(2, rain)
+          .bind("land", 0);
+
+        this.start();
+      },
+      stop: function() {
+        while (this._frames.length > 0) L.Util.cancelAnimFrame(this._frames.pop());
+      },
+      start: function() {
+
+        this.stop();
+
+        var canvas = this._canvas;
+        var gl = this._gl;
+
+        this._frames.push(L.Util.requestAnimFrame(function() {
+
+          var deltas = [
+            [1, 1],
+            [1, 0],
+            [1, -1],
+            [0, 1],
+            [0, -1],
+            [-1, 1],
+            [-1, 0],
+            [-1, -1],
+          ];
+
+          var p = deltas[Math.floor(deltas.length * Math.random())];
+          gl.bind("matrix", [1 / canvas.width, 0, 0, 0, 1 / canvas.height, 0, 0, 0, 0])
+            .bind("rain", 1)
+            .bind("dx", p[0])
+            .bind("dy", p[1])
+            .triangleStrip(2)
+            .bind("matrix", [1 / canvas.width, 0, 0, 0, 1 / canvas.height, 0, 0, 0, 0])
+            .bind("rain", 2)
+            .triangleStrip(1)
+            .bind("matrix", [1 / canvas.width, 0, 0, 0, -1 / canvas.height, 0, 0, 1, 0])
+            .bind("rain", 1)
+            .triangleStrip();
+
+          this.stop();
+          this.start();
+        }, this));
+      }
+    });
+
+
+    var map = L.map("map", L.extend({
+      zoom: 14,
+      center: [35.6707, 139.7852],
+      maxZoom: 15
+    }, L.Hash.parseHash(location.hash)));
+    map.zoomControl.setPosition("bottomright");
+    L.hash(map);
+
+    L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>地理院タイル</a>"
+    }).addTo(map);
+
+    var src = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/{id}/{z}/{x}/{y}.png?qxz", {
+      crossOrigin: true,
+      opacity: 0,
+      id: function(coords) {
+        return coords.z === 15 ? "dem5a_png" : "dem_png";
+      }
+    }).on("load", function() {
+      dst.paint();
+    });
+    var dst = new MyOverlay(src).addTo(map);
+
+    src.addTo(map);
+  </script>
+</body>
+
+</html>
