@@ -33,6 +33,10 @@
     #info.ready:hover {
       background: rgba(0, 0, 128, 1);
     }
+
+    .leaflet-overlay-flood {
+      opacity: 0.67;
+    }
   </style>
 </head>
 
@@ -48,7 +52,7 @@ uniform sampler2D rain;
 uniform mat3 matrix;
 uniform int dx;
 uniform int dy;
-const float delta = 8.0 / 256.0;
+const float delta = 2.0 / 256.0;
 
 float h(int dx,int dy){
   float x = dot(
@@ -77,7 +81,8 @@ vec4 main1(){
 }
 
 vec4 main2(){
-  float a = texture2D(rain, (matrix * gl_FragCoord.xyw).xy).a;
+  float a = r(0,0);
+  float s = sign(r(0,-1)) + sign(r(0,1)) + sign(r(1,0)) + sign(r(-1,0)) + sign(r(1,1))+ sign(r(-1,1))+ sign(r(1,-1))+ sign(r(-1,-1));
 //  return
 //    a < 0.01 ? vec4(0) :
 //    a > 0.66 ? mix(vec4(1,0.6,0,0.75),vec4(1,0,0,0.75),(a-0.66) / 0.33)  :
@@ -86,18 +91,19 @@ vec4 main2(){
 
 
 vec4 colors[4];
-colors[0] = vec4(0.00,0.80,0.00,0.75);
-colors[1] = vec4(0.00,0.80,1.00,0.75);
-colors[2] = vec4(0.00,0.00,1.00,0.75);
-colors[3] = vec4(0.30,0.00,0.00,0.75);
-float n = 1.0 / 4.0;
+colors[0] = vec4(8,8,8,8) / 8.0;
+colors[1] = vec4(0,4,8,8) / 8.0;
+colors[2] = vec4(0,0,8,8) / 8.0;
+colors[3] = vec4(2,0,0,8) / 8.0;
+float n = 1.0 / 3.0;
 float p = mod(a,n) / n;
 
   return
+    a == 0.0 ? vec4(0) :
+    s < 8.0 ? vec4(0.3,0.1,0.0,1) :
     a > n * 2.0 ? mix(colors[2],colors[3], p) :
     a > n * 1.0 ? mix(colors[1],colors[2], p) :
-    a > n * 0.0 ? mix(colors[0],colors[1], p) :
-    vec4(0);
+                  mix(colors[0],colors[1], p);
 }
 
 void main(){
@@ -105,8 +111,7 @@ void main(){
 }
 `;
     var FloodOverlay = L.Layer.extend({
-      initialize: function(src) {
-        this._src = src;
+      initialize: function() {
         this._frames = [];
       },
       createLandTexture: function(map) {
@@ -118,16 +123,20 @@ void main(){
         c.fillStyle = "#800000";
         c.fillRect(0, 0, s.x, s.y);
 
-        for (var key in this._src._tiles) {
-          var tile = this._src._tiles[key];
-          if (tile.current) {
-            var p1 = this._src._tileCoordsToNwSe(tile.coords)[0];
-            var p2 = this._map.latLngToContainerPoint(p1);
-            try {
-              c.drawImage(tile.el, p2.x, p2.y);
-            } catch (ex) {}
+        map.eachLayer(function(layer) {
+          if (!layer.options || layer.options.className !== "dempng-gsi") return;
+          for (var key in layer._tiles) {
+            var tile = layer._tiles[key];
+            if (tile.current) {
+              var p1 = layer._tileCoordsToNwSe(tile.coords)[0];
+              var p2 = map.latLngToContainerPoint(p1);
+              try {
+                c.drawImage(tile.el, p2.x, p2.y);
+              } catch (ex) {}
+            }
           }
-        }
+        });
+
         return e;
       },
       createRainTexture: function(map) {
@@ -136,13 +145,14 @@ void main(){
         var c = e.getContext("2d");
         e.width = s.x;
         e.height = s.y;
-        c.fillStyle = "rgba(0,0,0,0.33)";
+        c.fillStyle = "rgba(0,0,0,0.25)";
         c.fillRect(1, 1, s.x - 2, s.y - 2);
         return e;
       },
       createDrawingCanvas: function(map) {
         var s = map.getSize();
         var e = document.createElement("canvas");
+        e.setAttribute("class", "leaflet-overlay-flood");
         e.width = s.x;
         e.height = s.y;
         return e;
@@ -155,9 +165,7 @@ void main(){
         this.getPane().appendChild(canvas);
         L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
 
-        var gl = $gl(canvas.getContext("webgl", {
-            premultipliedAlpha: false
-          }))
+        var gl = $gl(canvas.getContext("webgl"))
           .shader("attribute vec2 xy;void main(){gl_Position = vec4(xy,0,1);}")
           .shader(fragmentShader)
           .bind("xy", [-1, -1, 1, -1, -1, 1, 1, 1])
@@ -218,8 +226,8 @@ void main(){
     });
 
     var map = L.map("map", L.extend({
-      zoom: 14,
-      center: [35.6707, 139.7852],
+      zoom: 15,
+      center: [35.6723, 139.7017],
       maxZoom: 15
     }, L.Hash.parseHash(location.hash)));
     map.zoomControl.setPosition("bottomright");
@@ -234,8 +242,10 @@ void main(){
       }),
       "陰影": L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png", {
         attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>地理院タイル</a>"
+      }),
+      "OpenStreetMap": L.tileLayer("http://{s}.tile.osm.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; <a href='http://osm.org/copyright'>OpenStreetMap</a> contributors"
       })
-
     }).addTo(map);
 
 
@@ -244,21 +254,21 @@ void main(){
     $("#info").click(function() {
       if ($(this).is(".ready")) {
         if (focus === null)
-          focus = new FloodOverlay(src).addTo(map);
+          focus = new FloodOverlay().addTo(map);
         $("#info").hide();
       }
     });
 
-
-    var src = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/{id}/{z}/{x}/{y}.png?qxz", {
+    L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/{id}/{z}/{x}/{y}.png?qxz", {
       crossOrigin: true,
       opacity: 0,
       attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>地理院タイル</a>",
+      className: "dempng-gsi",
       id: function(coords) {
         return coords.z === 15 ? "dem5a_png" : "dem_png";
       }
     }).on("loading", function() {
-      $("#info").removeClass("ready").text("Now loading DEM tiles").show();
+      $("#info").removeClass("ready").text("Loading DEM tiles").show();
       if (focus) {
         focus.stop();
         map.removeLayer(focus);
@@ -266,9 +276,7 @@ void main(){
       }
     }).on("load", function() {
       $("#info").addClass("ready").text("Click to Run").show();
-    });
-
-    src.addTo(map);
+    }).addTo(map);
   </script>
 </body>
 
