@@ -9,15 +9,31 @@ Flood simulator on top of WebGL and Leaflet
 
 # アプリの操作方法
 
+## Step1
+
+Web ブラウザで次の URL を開きます
+
 * <https://frogcat.github.io/flood/>
 
-## Step1
+** Note **
+
+以下の環境で動作確認を行っています
+
+- Google Chrome 71.0.3578.98 (Windows 10)
+- Microsoft Edge (Windows 10)
+- Google Chrome 71.0.3578.98 (Android 8.0.0)
+
+アニメーションの実行速度（フレームレート）は実行環境のソフトウェア・ハードウェアに依存します。
+
+
+
+## Step2
 
 まずシミュレーションしたい場所に移動します。すると画像のように「Click to Run」の帯が表示されるのでこれをクリックするとシミュレーション開始です。
 
-![スタート](https://user-images.githubusercontent.com/12029629/51830528-69fcf300-2333-11e9-945d-3c8d9fd939bb.png
+![スタート](https://user-images.githubusercontent.com/12029629/51830528-69fcf300-2333-11e9-945d-3c8d9fd939bb.png)
 
-## Step2
+## Step3
 
 最初は地図中の全面を均一に水が覆われた状態ですが
 
