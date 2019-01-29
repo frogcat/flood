@@ -15,7 +15,7 @@ Web ブラウザで次の URL を開きます
 
 * <https://frogcat.github.io/flood/>
 
-** Note **
+**Note**
 
 以下の環境で動作確認を行っています
 
