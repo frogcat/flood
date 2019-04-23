@@ -37,12 +37,30 @@
     .leaflet-overlay-flood {
       opacity: 0.67;
     }
+
+    #control {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: auto;
+      height: auto;
+      z-index: 2000;
+    }
   </style>
 </head>
 
 <body>
   <div id="map" style="position:absolute;top:0;left:0;bottom:0;right:0;"></div>
   <div id="info">Hello</div>
+  <div id="control">
+    <select id="speed">
+      <option value="1">very slow</option>
+      <option value="2">slow</option>
+      <option value="4" selected>normal</option>
+      <option value="8">fast</option>
+      <option value="16">very fast</option>
+    </select>
+  </div>
   <script>
     var fragmentShader =
       `
@@ -52,7 +70,7 @@ uniform sampler2D rain;
 uniform mat3 matrix;
 uniform int dx;
 uniform int dy;
-const float delta = 2.0 / 256.0;
+uniform float delta;
 
 float h(int dx,int dy){
   float x = dot(
@@ -75,8 +93,8 @@ vec4 main1(){
   float r3 = r(dx,dy);
 
   return (h2 <= -1000.0) ? vec4(0,0,0,0) :
-    (r1>0.0 && h1+r1>h2+r2 && h2+r2<h3+r3) ? vec4(0,0,0.5,r2+delta) :
-    (r2>0.0 && h2+r2>h3+r3 && (r1==0.0||r1+h1<r2+h2)) ? vec4(0,0,0.5,r2-delta) : vec4(0,0,0.5,r2);
+    (r1>0.0 && h1+r1>h2+r2 && h2+r2<h3+r3) ? vec4(0,0,0.5,r2+delta/256.0) :
+    (r2>0.0 && h2+r2>h3+r3 && (r1==0.0||r1+h1<r2+h2)) ? vec4(0,0,0.5,r2-delta/256.0) : vec4(0,0,0.5,r2);
 
 }
 
@@ -211,6 +229,7 @@ void main(){
             .bind("rain", 1)
             .bind("dx", p[0])
             .bind("dy", p[1])
+            .bind("delta", parseFloat($("#speed").val()))
             .triangleStrip(2)
             .bind("matrix", [1 / canvas.width, 0, 0, 0, 1 / canvas.height, 0, 0, 0, 0])
             .bind("rain", 2)
